@@ -1,18 +1,30 @@
 from abc import ABC, abstractmethod
+from typing import Dict, Optional
 
 
 class MapsService(ABC):
-    """
-    Abstract base class for a mapping service.
-    Defines the contract for getting route data and finding restaurants.
-    """
-
     @abstractmethod
-    def get_route_polyline(self, origin: str, destination: str) -> str | None:
+    def get_route_details(
+        self, origin: str, destination: str, use_current_location: bool = False
+    ) -> Optional[Dict]:
         pass
 
     @abstractmethod
-    def find_restaurants_on_route(
-        self, route_polyline: str, keyword: str
-    ) -> list:
+    def find_restaurants_on_route(self, route_polyline: str) -> list:
+        pass
+
+    @abstractmethod
+    def calculate_distance_from_route(
+        self, restaurant_location: Dict, route_polyline: str
+    ) -> float:
+        pass
+
+    @abstractmethod
+    def get_route_with_waypoint(
+        self, origin: str, waypoint: str, destination: str
+    ) -> Optional[Dict]:
+        pass
+
+    @abstractmethod
+    def reverse_geocode(self, lat: float, lng: float) -> Optional[str]:
         pass
