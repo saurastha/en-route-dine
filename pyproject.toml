@@ -1,0 +1,23 @@
+[project]
+name = "en-route-restaurant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.12.15",
+    "aisuite>=0.1.11",
+    "beautifulsoup4>=4.13.5",
+    "docstring-parser>=0.17.0",
+    "duckduckgo-search>=8.1.1",
+    "fastapi[standard]>=0.116.1",
+    "google-api-python-client>=2.179.0",
+    "googlemaps>=4.10.0",
+    "loguru>=0.7.3",
+    "openai>=1.102.0",
+    "polyline>=2.0.3",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "shapely>=2.1.1",
+    "uvicorn[standard]>=0.35.0",
+]
