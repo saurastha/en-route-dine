@@ -32,7 +32,7 @@ class LLMCaller(LLMService):
         system_prompt: str = None,
     ) -> dict:
         if not system_prompt:
-            system_prompt = "You are a helpful restaurant recommendation assistant. Your task is to evaluate how well a restaurant matches a user's request."
+            system_prompt = "You are a restaurant recommendation assistant. Evaluate how well a restaurant matches a user's request."
 
         user_prompt = f"""
         **User's Request:** "{user_query}"
@@ -40,27 +40,23 @@ class LLMCaller(LLMService):
         **Restaurant Information:**
         - Name: {restaurant_data.get("name")}
         - Rating: {restaurant_data.get("rating")} out of 5 stars from {restaurant_data.get("user_ratings_total")} users.
-        - Additional Context from the Web: "{search_context}"
+        - Additional Context: "{search_context}"
 
-        **Your Task:**
-        1. Carefully analyze the user's request and all the restaurant information.
-        2. Determine how well the restaurant fits the request on a scale of 1 (poor match) to 10 (perfect match).
-        3. Provide a brief, one-sentence justification for your score.
-        4. Respond ONLY with a valid JSON object in the following format: {{"score": <your_score>, "justification": "<your_one_sentence_justification>"}}
-
-        Do not add any other text, explanations, or markdown formatting outside of the JSON object.
+        **Task:**
+        1. Analyze how well the restaurant fits the request (1-10 scale).
+        2. Provide a brief justification.
+        3. Respond with JSON: {{"score": <score>, "justification": "<justification>"}}
         """
 
         try:
+            logger.info(f"Calling {self.config.model}")
             response = self.client.chat.completions.create(
                 model=self.config.model,
                 messages=self._build_messages(system_prompt, user_prompt),
                 temperature=self.config.temperature,
+                response_format={"type": "json_object"},
             )
-            json_response = json.loads(response.choices[0].message.content)
-            return json_response
+            return json.loads(response.choices[0].message.content)
         except Exception as e:
-            logger.info(
-                f"Error getting LLM score for {restaurant_data.get('name')}: {e}"
-            )
-            return {"score": 0, "justification": "Error during analysis."}
+            logger.error(f"LLM error for {restaurant_data.get('name')}: {e}")
+            return {"score": 0, "justification": "Analysis error."}
