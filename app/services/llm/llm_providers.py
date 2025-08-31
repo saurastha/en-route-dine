@@ -26,27 +26,11 @@ class LLMCaller(LLMService):
 
     def ask_llm(
         self,
-        user_query: str,
-        restaurant_data: dict,
-        search_context: str,
+        user_prompt: str,
         system_prompt: str = None,
     ) -> dict:
         if not system_prompt:
-            system_prompt = "You are a restaurant recommendation assistant. Evaluate how well a restaurant matches a user's request."
-
-        user_prompt = f"""
-        **User's Request:** "{user_query}"
-
-        **Restaurant Information:**
-        - Name: {restaurant_data.get("name")}
-        - Rating: {restaurant_data.get("rating")} out of 5 stars from {restaurant_data.get("user_ratings_total")} users.
-        - Additional Context: "{search_context}"
-
-        **Task:**
-        1. Analyze how well the restaurant fits the request (1-10 scale).
-        2. Provide a brief justification.
-        3. Respond with JSON: {{"score": <score>, "justification": "<justification>"}}
-        """
+            system_prompt = "You are a helful assistant."
 
         try:
             logger.info(f"Calling {self.config.model}")
@@ -58,5 +42,5 @@ class LLMCaller(LLMService):
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
-            logger.error(f"LLM error for {restaurant_data.get('name')}: {e}")
+            logger.error(f"LLM call failed: {e}")
             return {"score": 0, "justification": "Analysis error."}
