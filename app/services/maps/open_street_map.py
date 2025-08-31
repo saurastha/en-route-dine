@@ -134,40 +134,33 @@ class OpenStreetMapService(MapsService):
     def find_restaurants_on_route(
         self,
         route_polyline: str,
+        amenity_to_search: str,
         radius: int = 1000,
     ) -> List[Dict]:
         try:
-            route_points = polyline.decode(route_polyline)
-            logger.info("Gathered route points")
-            sampled_points = self._sample_route_points(
-                route_points, max_points=10
+            logger.info(
+                f"Finding restaurants along the route for: {amenity_to_search}"
             )
+            restaurants = self._search_restaurants_along_polyline_overpass(
+                route_polyline, amenity_to_search, radius
+            )
+
             all_restaurants = []
             seen_places = set()
 
-            for point in sampled_points:
-                try:
-                    restaurants = self._search_restaurants_overpass(
-                        lat=point[0], lon=point[1], radius=radius
-                    )
-                    for restaurant in restaurants:
-                        restaurant_id = restaurant.get("id")
-                        if restaurant_id in seen_places:
-                            continue
-                        seen_places.add(restaurant_id)
-                        standardized = self._standardize_restaurant_data(
-                            restaurant
-                        )
-                        if standardized:
-                            all_restaurants.append(standardized)
-                except Exception as e:
-                    logger.warning(f"Error searching at point {point}: {e}")
+            for restaurant in restaurants:
+                restaurant_id = restaurant.get("id")
+                if restaurant_id in seen_places:
                     continue
+                seen_places.add(restaurant_id)
+                standardized = self._standardize_restaurant_data(restaurant)
+                if standardized:
+                    all_restaurants.append(standardized)
 
             logger.info(f"Found: {len(all_restaurants)} restaurants")
             return all_restaurants
         except Exception as e:
-            logger.error(f"Error finding restaurants: {e}")
+            logger.error(f"Error finding restaurants along route: {e}")
             return []
 
     def calculate_distance_from_route(
@@ -229,29 +222,47 @@ class OpenStreetMapService(MapsService):
             logger.error(f"Error getting route from ORS: {e}")
             return None
 
-    def _search_restaurants_overpass(
-        self, lat: float, lon: float, radius: int
+    def _search_restaurants_along_polyline_overpass(
+        self, route_polyline: str, amenity_to_search: str, radius: int
     ) -> List[Dict]:
         try:
+            MAX_POLYLINE_POINTS = 150
+            decoded_points = polyline.decode(route_polyline)
+
+            if len(decoded_points) > MAX_POLYLINE_POINTS:
+                step = len(decoded_points) // MAX_POLYLINE_POINTS
+                simplified_points = decoded_points[::step]
+            else:
+                simplified_points = decoded_points
+
+            flattened_coords = [
+                coord for point in simplified_points for coord in point
+            ]
+            polyline_coords_str = ",".join(map(str, flattened_coords))
+
             overpass_query = f"""
-            [out:json][timeout:25];
+            [out:json][timeout:30];
             (
-              node["amenity"="restaurant"](around:{radius},{lat},{lon});
-              way["amenity"="restaurant"](around:{radius},{lat},{lon});
-              relation["amenity"="restaurant"](around:{radius},{lat},{lon});
+              nwr["amenity"="{amenity_to_search}"](around:{radius},{polyline_coords_str});
             );
             out center meta;
             """
+            logger.debug(overpass_query)
             response = requests.post(
                 self.overpass_url,
-                data=overpass_query,
+                data={"data": overpass_query},
                 headers=self.headers,
-                timeout=30,
+                timeout=40,
             )
             response.raise_for_status()
             return response.json().get("elements", [])
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(
+                f"HTTP error querying Overpass API: {http_err} - Response: {http_err.response.text}"
+            )
+            return []
         except Exception as e:
-            logger.warning(f"Error querying Overpass API: {e}")
+            logger.warning(f"Error querying Overpass API along polyline: {e}")
             return []
 
     def _standardize_restaurant_data(self, restaurant: Dict) -> Optional[Dict]:
@@ -294,14 +305,6 @@ class OpenStreetMapService(MapsService):
         except Exception as e:
             logger.warning(f"Error standardizing restaurant data: {e}")
             return None
-
-    def _sample_route_points(
-        self, route_points: List[Tuple[float, float]], max_points: int = 10
-    ) -> List[Tuple[float, float]]:
-        if len(route_points) <= max_points:
-            return route_points
-        step = len(route_points) // max_points
-        return route_points[::step]
 
     def _point_to_line_segment_distance(
         self, p: Dict, v: Dict, w: Dict

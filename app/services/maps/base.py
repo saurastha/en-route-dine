@@ -10,7 +10,12 @@ class MapsService(ABC):
         pass
 
     @abstractmethod
-    def find_restaurants_on_route(self, route_polyline: str) -> list:
+    def find_restaurants_on_route(
+        self,
+        route_polyline: str,
+        amenity_to_search: str,
+        radius: int = 1000,
+    ) -> list:
         pass
 
     @abstractmethod
