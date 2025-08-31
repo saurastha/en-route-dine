@@ -58,7 +58,7 @@ def main():
         max_deviation_from_route = st.slider(
             "Radius of search from route (m)", 500, 2000, 700, 100
         )
-        min_rating = st.slider("Minimum restaurant rating", 1.0, 5.0, 4.0, 0.1)
+        min_rating = st.slider("Minimum restaurant rating", 1.0, 5.0, 1.0, 0.1)
 
         if st.button("Find Restaurants"):
             if not destination or not query:
