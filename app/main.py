@@ -1,3 +1,4 @@
+import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote_plus
 
@@ -6,6 +7,7 @@ from loguru import logger
 
 from .factory import ServiceFactory
 from .schema import RecommendationRequest, RecommendationResponse, Restaurant
+from .services.maps.amenity import FoodAmenity
 from .services.maps.google_maps import GoogleMapsService
 from .services.maps.open_street_map import OpenStreetMapService
 from .services.maps.utils import get_user_location
@@ -40,6 +42,49 @@ def create_osm_link(start_coords, end_coords, waypoint_coords) -> str:
     return f"{base_url}?engine=osrm_car&route={route_param}"
 
 
+async def determine_amenity_with_llm(query: str) -> str:
+    amenity_list = FoodAmenity.get_all_values()
+
+    system_prompt = """
+    You are an intelligent API assistant.
+    Your task is to classify a user's food-related query into only one predefined amenity categories from a provided list.
+    Respond only with a JSON object containing the most relevant amenity.
+    If no specific category matches, default to "restaurant". Do not provide any explanation or conversational text.
+    """
+
+    user_prompt = f"""
+    **User Query:** "{query}"
+
+    **Available Amenity Categories:**
+    {amenity_list}
+
+    Based on the query, identify the most relevant amenity categories from the list.
+
+    **JSON Response format:**
+    {{"amenities": "<most_suitable_amenity>"}}
+    """
+    default_amenity = "restaurant"
+
+    try:
+        logger.info(f"Classifying amenity for query: '{query}'")
+        result = llm_service.ask_llm(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+        amenity = result.get("amenities", default_amenity)
+
+        validated_amenity = amenity in amenity_list
+        if not validated_amenity:
+            return default_amenity
+
+        logger.info(f"LLM determined amenities: {amenity}")
+        return amenity
+    except Exception as e:
+        logger.error(
+            f"LLM amenity classification failed: {e}. Defaulting to 'restaurant'."
+        )
+        return default_amenity
+
+
 def process_restaurant_candidate(
     restaurant_data: dict,
     query: str,
@@ -63,11 +108,25 @@ def process_restaurant_candidate(
             logger.warning(f"Search failed for {restaurant_data['name']}: {e}")
             search_context = "No web context available"
 
+    system_prompt = "You are a restaurant recommendation assistant. Evaluate how well a restaurant matches a user's request."
+
+    user_prompt = f"""
+    **User's Request:** "{query}"
+
+    **Restaurant Information:**
+    - Name: {restaurant_data.get("name")}
+    - Rating: {restaurant_data.get("rating")} out of 5 stars from {restaurant_data.get("user_ratings_total")} users.
+    - Additional Context: "{search_context}"
+
+    **Task:**
+    1. Analyze how well the restaurant fits the request (1-10 scale). Even when the cuisine or menu do not specifically mention the user's choice, try to co-related things and determine the scale.
+    2. Provide a brief justification. Keep the justification short.
+    3. Respond with JSON: {{"score": <score>, "justification": "<justification>"}}
+    """
+
     try:
         llm_result = llm_service.ask_llm(
-            user_query=query,
-            restaurant_data=restaurant_data,
-            search_context=search_context,
+            system_prompt=system_prompt, user_prompt=user_prompt
         )
     except Exception as e:
         logger.error(f"LLM scoring failed for {restaurant_data['name']}: {e}")
@@ -132,9 +191,15 @@ async def get_recommendations(
 
         route_polyline = route_details["polyline"]
 
-        initial_candidates = maps_service.find_restaurants_on_route(
-            route_polyline, request_data.radius
+        amenity_to_search = await determine_amenity_with_llm(
+            request_data.query
         )
+
+        initial_candidates = maps_service.find_restaurants_on_route(
+            route_polyline, amenity_to_search, request_data.radius
+        )
+
+        logger.debug(initial_candidates)
 
         if not initial_candidates:
             return RecommendationResponse(
@@ -158,10 +223,6 @@ async def get_recommendations(
                 restaurants=[],
             )
 
-        top_candidates = sorted(
-            filtered_candidates, key=lambda x: x.get("rating", 0), reverse=True
-        )[:5]
-
         ranked_restaurants = []
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {
@@ -174,7 +235,7 @@ async def get_recommendations(
                     request_data.destination,
                     route_details,
                 )
-                for restaurant_data in top_candidates
+                for restaurant_data in random.sample(filtered_candidates, 5)
             }
 
             for future in as_completed(futures):
@@ -186,6 +247,8 @@ async def get_recommendations(
                     )
 
         ranked_restaurants.sort(key=lambda x: x.match_score, reverse=True)
+
+        logger.debug(f"After ranking: {ranked_restaurants}")
 
         route_summary = route_details.get("steps", [])
         if ranked_restaurants:
